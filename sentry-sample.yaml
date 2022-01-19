@@ -1,0 +1,217 @@
+# Watchtower-Sentry configuration file
+#
+# This is a worked example using the Trinarkular Per-Country detection instance
+
+
+# Global loglevel can be DEBUG, INFO (default), WARNING, ERROR, or CRITICAL
+loglevel: INFO
+
+
+# Pipeline is a list of modules that are chained together, passing a stream of
+# (key, value, time) tuples from one to the next.  A pipeline starts with a
+# source, followed by any number of filters, and ends with a sink.  All
+# modules have a "module" attribute identifying the module, and an optional
+# "loglevel" attribute that overrides the global loglevel within the module.
+#
+# Some modules (e.g., MovingStat) emit multiple values (as a tuple nested in
+# the value field). If such a module is used, the remainder of the pipeline
+# must be comprised of modules than can handle such multi-value tuples.
+# Eventually we should upgrade all modules to handle this case, but currently
+# only the AlertKafka supports multi-value data points.
+pipeline:
+
+# Start with a source module.  A real config file can have only one source;
+# multiple are shown here for illustration only.
+
+# Obtain time series data from TSK (Time Series Kafka) in real-time
+#
+# NOTE: This source can give data out of time order, so the TimeOrder filter
+# should be used when using the Realtime source.
+- module: "sources.Realtime"
+
+  # Fetch data whose keys match these DBATS-style glob patterns.
+  # These are evaluated in the order listed here, so to maximize performance
+  # they should be in descending order of match probability.
+  expressions:
+  - 'active.ping-slash24.geo.netacuity.*.*.probers.team-*.caida-sdsc.*.up_slash24_cnt'
+
+  # Comma-separated list of Kafka brokers in <host>:<port> form.
+  brokers: 'clayface.caida.org:9092,croc.caida.org:9092,loki.caida.org:9092'
+
+  # Kafka topic prefix
+  topicprefix: 'tsk-production'
+
+  # Kafka topic channel (appended to topic prefix to create a topic name)
+  channelname: 'active.ping-slash24.team-1.aggregated'
+
+  # Kafka consumer group
+  consumergroup: 'test'
+
+
+# Obtain time series data by querying the IODA HTTP API
+- module: "sources.Historical"
+
+  # Fetch data whose keys match this DBATS-style glob pattern
+  expression: 'active.ping-slash24.geo.netacuity.*.*.probers.team-*.caida-sdsc.*.up_slash24_cnt'
+
+  # Fetch data with time >= starttime and time < endtime
+  starttime: '2019-01-01 00:00'
+  endtime: '2019-07-01 00:00'
+
+  # IODA HTTP API URL
+  url: 'https://ioda.caida.org/data/ts/json'
+
+  # How many seconds of data should be retrieved with each API call.
+  batchduration: 21600
+
+  # If true, null values will be skipped. If false, they will be treated as 0.
+  # (optional, default false)
+  ignorenull: true
+
+  # (optional) Additional query parameters to pass to the API.
+  # In this case the aggrScheme setting disables any "software" downsampling,
+  # and sets a max points value that will force DBATS to give us full-
+  # resolution data (since we're querying in 6hr batches, there should only be
+  # 36 points at full 10min resolution).
+  queryparams:
+    aggrScheme: 'db'
+    maxPointsPerSeries: 100
+
+# Read time series data from a JSONL file.  This is mainly useful for testing.
+- module: "sources.JsonIn"
+
+  # Filename to read jsonl records from. "-" (the default) means stdin.
+  file: "in.jsonl"
+
+
+# Ensure per-key data is sorted with monotonically increasing timestamps
+- module: "filters.TimeOrder"
+
+  # The expected time (in seconds) between two points for the same key.
+  # This is used to enforce strict ordering of data when consuming from
+  # multiple topics.
+  interval: 600
+
+  # Maximum number of seconds to wait for strictly ordered data before assuming
+  # that a point is missing and moving skipping ahead in time
+  timeout: 1200
+
+
+# Convert unsigned 64-bit numbers to signed 64-bit numbers.
+- module: "filters.ToSigned"
+
+
+# Aggregate sum across multiple keys with same timestamp
+- module: "filters.AggSum"
+
+  # DBATS-style glob pattern used to group series to be aggregated.    One or
+  # more parenthesized substrings identify the group over which to aggregate.
+  # The output key will be expression with parenthesized substrings replaced
+  # with the actual group substrings seen in the input keys.
+  # Example:
+  #   input keys: x.US.p1, x.US.p2, x.CA.p1, x.CA.p2
+  #   expression: x.(*).*
+  #   output keys: x.US.*, x.CA.*
+  expression: 'active.ping-slash24.geo.netacuity.(*.*).probers.team-*.caida-sdsc.*.up_slash24_cnt'
+
+  # (optional) Expected number of inputs per group.  Once a group has this
+  # many values, the output can be generated, even if timeout has not been
+  # reached.
+  groupsize: 20
+
+  # Max time (in seconds) to wait for inputs to arrive for a group before
+  # generating output for the group (unless droppartial is set).
+  timeout: 600
+
+  # (optional, default False) If this is true, then groups with fewer than
+  # `groupsize` datapoints after `timeout` seconds should be dropped rather
+  # than generating output.
+  droppartial: false
+
+
+# Output ratio of actual values to predicted values calculated with a moving
+# statistic.
+#
+# NB: If the includeabsolute option is enabled, this module emits a triple in
+# the "value" field of each data point which corresponds to
+# (relative, actual, predicted)
+- module: "filters.MovingStat"
+
+  # How to calculate the predicted value.  This is an array, starting with the
+  # name of the method, possibly followed by additional integer parameters.
+  type: ['median']             # middle value; equivalent to ['quantile', 1, 2]
+  #type: ['min']                # min value; equivalent to ['quantile', 0, 1]
+  #type: ['max']                # max value; equivalent to ['quantile', 1, 1]
+  #type: ['mean']               # mean of values
+  #type: ['quantile', 1, 4]     # 1st quartile
+  #type: ['quantile', 90, 100]  # 90th percentile
+
+  # Number of seconds of data over which to calculate statistic.
+  history: 604800
+
+  # Minimum number of seconds of data to collect before generating output.
+  warmup: 3600
+
+  # (optional) Emit absolute values alongside relative
+  includeabsolute: true
+
+  # (optional) Do not generate output when the predicted value falls below a
+  # threshold
+  minprediction: 20
+
+  # (optional) To avoid having extreme values skew the prediction, we can
+  # "inpaint": That is, instead of appending an actual extreme value to the
+  # history, we instead append the predicted value.
+  inpainting:
+    # Inpaint if actual/predicted is < min or > max.  At least one of min or
+    # max is required.
+    min: 0.8
+    max: 2
+
+    # We occasionally see level shifts in the signals that can result in
+    # perpetual alerts if we don't update the history because we're in a
+    # permanent inpainting state. This should help mitigate this by only
+    # inpainting for a certain amount of time, after which old data is
+    # discarded and the new (apparently normal) data is added to the history.
+    #
+    # This effectively limits the maximum outage duration that we
+    # can detect, but since level shifts and outages are identical
+    # as far as our data goes, I don't think there is a better
+    # solution.
+    maxduration: 604800
+
+
+# End with a sink module.  A real config file can have only one sink;
+# multiple are shown here for illustration only.
+
+# Detect extreme values and send alert objects to a Kafka cluster.
+- module: "sinks.AlertKafka"
+
+  # Generate alert if value < min or value > max.  At least one of min or max
+  # is required.
+  min: 0.8
+
+  # (optional) Do not generate an alert until the event has lasted for at least
+  #  this many seconds. The event will still have the original start time, but
+  # will be emitted after enough subsequent data points have been received to
+  # satisfy this minimum duration.
+  minduration: 60
+
+  # Unique identifier for this data source (this is constant across
+  # aggregation levels). Used when constructing an Alert object.
+  fqid: active.ping-slash24.team-1.up_slash24_cnt
+
+  # Human-readable name for this data source (constant across
+  # aggregation levels).
+  name: '/24 Ping up /24s (Team 1)'
+
+  # Kafka configuration for sending alert data to watchtower-alert system
+  brokers: 'watchtower.int.limbo.caida.org:9092'
+  topicprefix: 'watchtower-test'
+
+
+# Write time series data to a JSONL file.  This is mainly useful for testing.
+- module: "sinks.JsonOut"
+
+  # Filename to write jsonl records to. "-" (the default) means stdout.
+  file: "out.jsonl"

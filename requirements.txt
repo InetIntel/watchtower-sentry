@@ -1,0 +1,5 @@
+requests
+jsonschema>=3.0.0
+confluent_kafka
+pytimeseries
+pyyaml
