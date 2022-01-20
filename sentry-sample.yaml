@@ -180,6 +180,25 @@ pipeline:
     # solution.
     maxduration: 604800
 
+# Convert a graphite-style key into a entity identifier that can be queried
+# using the IODA API, e.g. bgp.prefix-visibility.geo.netacuity.NA.US.v4.visibility_threshold.min_50%_ff_peer_asns.visible_slash24_cnt needs to become
+# "country/US", whereas bgp.prefix-visibility.geo.netacuity.NA.US.4444.v4.visibility_threshold.min_50%_ff_peer_asns.visible_slash24_cnt needs to become
+# "region/4444".
+#
+# The parenthesized portion of the expression pattern determines which part
+# of the key to use as the entity code, while the metatype option describes
+# which entity type should be used for keys matching the expression pattern.
+- module: "filters.KeyEntity"
+  expressions:
+    - pattern: "bgp.prefix-visibility.geo.netacuity.*.(*).v4.visibility_threshold.min_50%_ff_peer_asns.visible_slash24_cnt"
+      metatype: "country"
+    - pattern: 'bgp.prefix-visibility.asn.(*).v4.visibility_threshold.min_50%_ff_peer_asns.visible_slash24_cnt'
+      metatype: "asn"
+    - pattern: 'bgp.prefix-visibility.geo.netacuity.*.*.*.(*).v4.visibility_threshold.min_50%_ff_peer_asns.visible_slash24_cnt'
+      metatype: "county"
+    - pattern: 'bgp.prefix-visibility.geo.netacuity.*.*.(*).v4.visibility_threshold.min_50%_ff_peer_asns.visible_slash24_cnt'
+      metatype: "region"
+
 
 # End with a sink module.  A real config file can have only one sink;
 # multiple are shown here for illustration only.
