@@ -77,6 +77,11 @@ class AlertKafka(SentryModule.Sink):
 
     def _produce_alert(self, status, t, key, value, actual, predicted):
         # Cram our alert data into the watchtower-alert legacy format
+        try:
+            expre = str(key, 'ascii')
+        except TypeError:
+            expre = key
+
         record = {
             "fqid": self.fqid,
             "name": self.name,
@@ -86,7 +91,7 @@ class AlertKafka(SentryModule.Sink):
             "history_expression": None,
             "method": self.method,
             "violations": [{
-                "expression": str(key, 'ascii'),
+                "expression": expre,
                 "condition": self.condition_label[status + 1],
                 "value": value if actual is None else actual,
                 "history_value": predicted,  # may be None

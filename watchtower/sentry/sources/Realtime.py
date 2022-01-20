@@ -19,7 +19,7 @@ import confluent_kafka
 import logging
 import re
 import time
-from pytimeseries.tsk.proxy import TskReader
+import sys
 from .. import SentryModule
 from ._Datasource import Datasource
 
@@ -30,6 +30,71 @@ KAFKA_IGNORED_ERRS = [
     confluent_kafka.KafkaError._TIMED_OUT,
 ]
 logger = logging.getLogger(__name__)
+
+class GraphiteKafkaReader:
+    def __init__(self, topic_prefix, channel, consumer_group, brokers,
+                partition=None, reset_offsets=False, commit_offsets=True):
+
+        self.channel = bytes(channel, 'ascii')
+        self.topic_name = ".".join([topic_prefix, channel])
+        self.consumer_group = ".".join([consumer_group, self.topic_name])
+        self.partition = partition
+
+        self.conf = {
+            'bootstrap.servers': brokers,
+            'group.id': self.consumer_group,
+            'default.topic.config': {'auto.offset.reset': 'earliest'},
+            'heartbeat.interval.ms': 3000,
+            'api.version.request': True,
+            'enable.auto.commit': commit_offsets
+        }
+
+        self.kc = None
+
+        if reset_offsets:
+            logging.info("Resetting commited offsets")
+            raise NotImplementedError
+
+    def connect(self):
+        if self.kc is not None:
+             logging.warning("GraphiteKafkaReader.connect() called on an already connected instance?")
+             return
+
+        self.kc = confluent_kafka.Consumer(self.conf)
+        if self.partition:
+            topic_list = [confluent_kafka.TopicPartition(self.topic_name,
+                        self.partition)]
+            self.kc.assign(topic_list)
+        else:
+            self.kc.subscribe([self.topic_name])
+
+    def close(self):
+        return self.kc.close()
+
+    def poll(self, time):
+        return self.kc.poll(time)
+
+    def handle_msg(self, msgbuf, msg_cb, kv_cb):
+        msg_ts = 0
+
+        kvs = msgbuf.split(b'\n')
+        for kv in kvs:
+            msg = kv.decode().split(" ")
+            if len(msg) != 3:
+                logging.debug("Unexpected message format: %s" % (kv.decode()))
+                continue
+            timestamp = int(msg[2])
+            if msg_ts == 0:
+                msg_cb(timestamp, 1, self.channel, kv, len(kv))
+                msg_ts = timestamp
+            else:
+                assert(msg_ts == timestamp)
+
+            key = msg[0]
+            val = int(msg[1])
+
+            kv_cb(key, val)
+
 
 add_cfg_schema = {
     "properties": {
@@ -53,7 +118,7 @@ class Realtime(Datasource):
         logger.debug("Realtime.__init__")
         super().__init__(config, logger, gen, ctx)
         self.expressions = config['expressions']
-        self.tsk_reader = TskReader(
+        self.tsk_reader = GraphiteKafkaReader(
                 config['topicprefix'],
                 config['channelname'],
                 config['consumergroup'],
@@ -64,7 +129,7 @@ class Realtime(Datasource):
         regexes = [SentryModule.glob_to_regex(exp) for exp in self.expressions]
         logger.debug("expressions: %s", self.expressions)
         logger.debug("regexes:     %s", regexes)
-        self.expression_res = [re.compile(bytes(regex, 'ascii')) for regex in regexes]
+        self.expression_res = [re.compile(regex) for regex in regexes]
         self.kv_cnt = 0
         self.kv_match_cnt = 0
 
@@ -82,6 +147,7 @@ class Realtime(Datasource):
     def reader_body(self):
         logger.debug("realtime.run_reader()")
         last_log_time = time.time()
+        self.tsk_reader.connect()
         while not self.done:
             now = time.time()
             if last_log_time + 60 <= now:
