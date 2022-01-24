@@ -58,7 +58,7 @@ class AggSum(SentryModule.SentryModule):
         logger.debug("AggSum.__init__")
         super().__init__(config, logger, gen)
         self.expressions = config['expressions']
-        self.ascii_expressions = [bytes(exp, 'ascii') for exp in self.expressions]
+        self.ascii_expressions = [for exp in self.expressions]
         self.timeout = config['timeout']
         self.groupsize = config.get('groupsize', None)
         self.droppartial = config.get('droppartial', False)
@@ -82,7 +82,7 @@ class AggSum(SentryModule.SentryModule):
         regexes = [SentryModule.glob_to_regex(exp) for exp in self.expressions]
         logger.debug("expressions: %s", self.expressions)
         logger.debug("regexes:      %s", regexes)
-        self.expression_res = [re.compile(bytes(r, 'ascii')) for r in regexes]
+        self.expression_res = [re.compile(r) for r in regexes]
 
     # replace parens in expression with group id
     # (this could be optimized by pre-splitting expression)
