@@ -88,7 +88,7 @@ class AggSum(SentryModule.SentryModule):
     # (this could be optimized by pre-splitting expression)
     def groupkey(self, groupkey, groupid):
         for part in groupid:
-            groupkey = re.sub(rb"\([^)]*\)", part, groupkey, count=1)
+            groupkey = re.sub("\([^)]*\)", part, groupkey, count=1)
         return groupkey
 
     def _expire_oldtimes(self, ascii_exp, groupkey, groupid, max_t):
