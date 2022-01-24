@@ -58,7 +58,7 @@ class AggSum(SentryModule.SentryModule):
         logger.debug("AggSum.__init__")
         super().__init__(config, logger, gen)
         self.expressions = config['expressions']
-        self.ascii_expressions = [for exp in self.expressions]
+        self.ascii_expressions = [exp for exp in self.expressions]
         self.timeout = config['timeout']
         self.groupsize = config.get('groupsize', None)
         self.droppartial = config.get('droppartial', False)
