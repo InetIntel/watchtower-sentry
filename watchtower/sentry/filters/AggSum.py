@@ -58,7 +58,7 @@ class AggSum(SentryModule.SentryModule):
         logger.debug("AggSum.__init__")
         super().__init__(config, logger, gen)
         self.expressions = config['expressions']
-        self.ascii_expressions = [bytes(exp, 'ascii') for exp in self.expressions]
+        self.ascii_expressions = [exp for exp in self.expressions]
         self.timeout = config['timeout']
         self.groupsize = config.get('groupsize', None)
         self.droppartial = config.get('droppartial', False)
@@ -82,13 +82,13 @@ class AggSum(SentryModule.SentryModule):
         regexes = [SentryModule.glob_to_regex(exp) for exp in self.expressions]
         logger.debug("expressions: %s", self.expressions)
         logger.debug("regexes:      %s", regexes)
-        self.expression_res = [re.compile(bytes(r, 'ascii')) for r in regexes]
+        self.expression_res = [re.compile(r) for r in regexes]
 
     # replace parens in expression with group id
     # (this could be optimized by pre-splitting expression)
     def groupkey(self, groupkey, groupid):
         for part in groupid:
-            groupkey = re.sub(rb"\([^)]*\)", part, groupkey, count=1)
+            groupkey = re.sub("\([^)]*\)", part, groupkey, count=1)
         return groupkey
 
     def _expire_oldtimes(self, ascii_exp, groupkey, groupid, max_t):
