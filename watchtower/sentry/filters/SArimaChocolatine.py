@@ -2,6 +2,8 @@ import logging
 from libchocolatine.libchocolatine import ChocolatineDetector
 from .. import SentryModule
 
+IODAAPI="https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw"
+
 logger = logging.getLogger(__name__)
 add_cfg_schema = {
     "properties": {
@@ -12,6 +14,14 @@ add_cfg_schema = {
                 "modellerTopic": {"type": "string"},
                 "bootstrapModel": {"type": "string"},
                 "group": {"type": "string"},
+            },
+        },
+        "dbconf": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "host": {"type": "string"},
+                "port": {"type": "integer"},
             },
         },
         "maxarma": {"type": "integer", "exclusiveMinimum": 0},
@@ -27,6 +37,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
 
         self.maxarma = config.get("maxarma", 3)
         self.name = config.get("name", "unknown")
+        self.dbconf = config.get("dbconf", {})
         self.kafkaconf = {}
         self.kafkaconf['modellertopic'] = "chocolatine.model"
         self.kafkaconf['bootstrap-model'] = "capri.cc.gatech.edu:9092"
@@ -40,7 +51,10 @@ class SArimaChocolatine(SentryModule.SentryModule):
             if 'group' in config['kafkaconf']:
                 self.kafkaconf['group'] = config['kafkaconf']['group']
 
-        self.detector = ChocolatineDetector(self.name, IODAAPI, self.kafkaconf)
+        ctx['method'] = "sarima" # for AlertKafka
+
+        self.detector = ChocolatineDetector(self.name, IODAAPI, self.kafkaconf,
+                self.dbconf, self.maxarma)
         self.detector.start()
 
     def run(self):
