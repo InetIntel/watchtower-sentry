@@ -1,5 +1,6 @@
 import logging
 from libchocolatine.libchocolatine import ChocolatineDetector
+from libchocolatine.asyncfetcher import AsyncHistoryFetcher
 from .. import SentryModule
 
 IODAAPI="https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw"
@@ -53,8 +54,13 @@ class SArimaChocolatine(SentryModule.SentryModule):
 
         ctx['method'] = "sarima" # for AlertKafka
 
+
         self.detector = ChocolatineDetector(self.name, IODAAPI, self.kafkaconf,
                 self.dbconf, self.maxarma)
+        self.fetcher = AsyncHistoryFetcher(IODAAPI, self.detector.histRequest,
+                self.detector.histReply)
+
+        self.fetcher.start()
         self.detector.start()
 
     def run(self):
@@ -64,4 +70,6 @@ class SArimaChocolatine(SentryModule.SentryModule):
             if value is None:
                 continue
             self.detector.queueLiveData(key, t, value)
-            
+
+        self.detector.halt()
+        self.fetcher.halt()
