@@ -1,4 +1,4 @@
-import logging
+import logging, time
 from libchocolatine.libchocolatine import ChocolatineDetector
 from libchocolatine.asyncfetcher import AsyncHistoryFetcher
 from .. import SentryModule
@@ -70,6 +70,23 @@ class SArimaChocolatine(SentryModule.SentryModule):
             if value is None:
                 continue
             self.detector.queueLiveData(key, t, value)
+
+            while True:
+                ev = self.detector.getLiveDataResult(False)
+                if ev is None:
+                    time.sleep(0.1)
+                    continue
+                if ev[2] is not None:
+                    if ev[2]['alertable'] and ev[2]['threshold'] > 0:
+                        yield((ev[0], ev[2]['observed'] / ev[2]['threshold'], \
+                                ev[1]))
+                        print(ev[0], ev[2]['observed'], ev[2]['threshold'])
+                    else:
+                        yield((ev[0], 1.0, ev[1]))
+
+
+                if ev[0] == key and ev[1] == t:
+                    break
 
         self.detector.halt()
         self.fetcher.halt()
