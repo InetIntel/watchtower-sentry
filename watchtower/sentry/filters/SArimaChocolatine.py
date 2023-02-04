@@ -78,11 +78,13 @@ class SArimaChocolatine(SentryModule.SentryModule):
                     continue
                 if ev[2] is not None:
                     if ev[2]['alertable'] and ev[2]['threshold'] > 0:
-                        yield((ev[0], ev[2]['observed'] / ev[2]['threshold'], \
-                                ev[1]))
-                        print(ev[0], ev[2]['observed'], ev[2]['threshold'])
+                        val = ev[2]['observed'] / ev[2]['threshold']
                     else:
-                        yield((ev[0], 1.0, ev[1]))
+                        val = 1.0
+
+                    actual = int(ev[2]['observed'])
+                    pred = int(ev[2]['predicted'])
+                    yield((ev[0], (val, actual, pred), ev[1]))
 
 
                 if ev[0] == key and ev[1] == t:
