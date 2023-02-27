@@ -74,8 +74,8 @@ class SArimaChocolatine(SentryModule.SentryModule):
             while True:
                 ev = self.detector.getLiveDataResult(False)
                 if ev is None:
-                    time.sleep(0.1)
-                    continue
+                    break
+
                 if ev[2] is not None:
                     if ev[2]['alertable'] and ev[2]['threshold'] > 0:
                         val = ev[2]['observed'] / ev[2]['threshold']
@@ -85,7 +85,6 @@ class SArimaChocolatine(SentryModule.SentryModule):
                     actual = int(ev[2]['observed'])
                     pred = int(ev[2]['predicted'])
                     yield((ev[0], (val, actual, pred), ev[1]))
-
 
                 if ev[0] == key and ev[1] == t:
                     break
