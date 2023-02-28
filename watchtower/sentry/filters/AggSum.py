@@ -41,6 +41,7 @@ add_cfg_schema = {
         "groupsize":   {"type": "integer", "exclusiveMinimum": 0},
         "timeout":     {"type": "integer", "exclusiveMinimum": 0},
         "droppartial": {"type": "boolean"},
+        "dropfirst":   {"type": "boolean"},
     },
     "required": ["expressions", "timeout"]
 }
@@ -62,6 +63,8 @@ class AggSum(SentryModule.SentryModule):
         self.timeout = config['timeout']
         self.groupsize = config.get('groupsize', None)
         self.droppartial = config.get('droppartial', False)
+        self.dropfirst = config.get('dropfirst', True)
+        self.firstts = None
 
         # agg_by_group is a 3-level dict that stores agginfo keyed by expression,
         # groupid, then timestamp, so it's easy to find all agginfos for a given group.
@@ -104,7 +107,8 @@ class AggSum(SentryModule.SentryModule):
                          (groupid, oldtime), old_agginfo.count,
                          self.groupsize)
             if not self.droppartial:
-                yield (groupkey, old_agginfo.vsum, oldtime)
+                if not self.dropfirst or (oldtime != self.firstts):
+                    yield (groupkey, old_agginfo.vsum, oldtime)
             del self.agg_by_group[ascii_exp][groupid][oldtime]
             del self.agg_by_seen[(ascii_exp, groupid, oldtime)]
 
@@ -122,6 +126,8 @@ class AggSum(SentryModule.SentryModule):
         for entry in self.gen():
             logger.debug("AG: %s", entry)
             key, value, t = entry
+            if self.firstts is None:
+                self.firstts = t
             match = False
             ascii_exp = None
             for idx, exp_re in enumerate(self.expression_res):
@@ -195,7 +201,8 @@ class AggSum(SentryModule.SentryModule):
                 yield from self._expire_oldtimes(ascii_exp, groupkey, groupid, t)
                 # and now yield this point (if we want partial data)
                 if not self.droppartial:
-                    yield (groupkey, agginfo.vsum, t)
+                    if not self.dropfirst or (t != self.firstts):
+                        yield (groupkey, agginfo.vsum, t)
                 # and then update the old_keys pointer
                 self._update_oldkeys(ascii_exp, groupid, t)
 
