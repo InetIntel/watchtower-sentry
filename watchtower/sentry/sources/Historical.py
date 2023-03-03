@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 add_cfg_schema = {
     "properties": {
-        "expression":    {"type": "string"},
         "starttime":     {"type": "string"},
         "endtime":       {"type": "string"},
         "url":           {"type": "string"},
@@ -36,7 +35,7 @@ add_cfg_schema = {
         "ignorenull":    {"type": "boolean"},
         "queryparams":   {"type": "object"},
     },
-    "required": ["expression", "starttime", "endtime", "url", "batchduration"]
+    "required": ["starttime", "endtime", "url", "batchduration"]
 }
 
 class Historical(Datasource):
@@ -46,7 +45,6 @@ class Historical(Datasource):
         super().__init__(config, logger, gen, ctx)
         self.loop = None
         self.client = None
-        self.expression = config['expression']
         self.start_time = SentryModule.strtimegm(config['starttime'])
         self.end_time = SentryModule.strtimegm(config['endtime'])
         self.batch_duration = config['batchduration']
@@ -65,20 +63,17 @@ class Historical(Datasource):
         post_data = {
             'from': start_batch,
             'until': self.end_batch,
-            'expression': self.expression
         }
         if self.queryparams:
             post_data.update(self.queryparams)
         logger.debug("request: %d - %d", start_batch, self.end_batch)
-        self.request = requests.post(self.url, data=post_data, timeout=60)
+        self.request = requests.get(self.url, params=post_data, timeout=60)
         return True
 
     def handle_response(self):
         logger.debug("response code: %d", self.request.status_code)
         self.request.raise_for_status()
         result = self.request.json()
-        logger.debug("response: %s - %s", result['queryParameters']['from'],
-            result['queryParameters']['until'])
 
         # wait for self.incoming to be empty
         with self.cond_producable:
@@ -91,14 +86,16 @@ class Historical(Datasource):
             self.incoming = []
             self.producable = False
             logger.debug("cond_producable.wait DONE")
-        series = result['data']['series']
-        for key, record in series.items():
-            t = int(record['from'])
-            step = int(record['step'])
-            ascii_key = bytes(key, 'ascii')
-            for value in record['values']:
-                self.incoming.append((ascii_key, value, t))
-                t += step
+        for series in result['data'][0]:
+            key = series['datasource'] + '.' + series['entityType'] + '.' + series['entityCode']
+            if series['subtype'] is not None and series['subtype'] != "":
+                    key += "." + series['subtype']
+
+            t = int(series['from'])
+            for v in series['values']:
+                self.incoming.append((key, v, t))
+                t += int(series['step'])
+
         # tell computation thread that self.incoming is now full
         with self.cond_consumable:
             logger.debug("cond_consumable.notify")
