@@ -26,6 +26,7 @@ add_cfg_schema = {
             },
         },
         "maxarma": {"type": "integer", "exclusiveMinimum": 0},
+        "minpredict": {"type": "integer", "inclusiveMinimum": 0},
     },
     "required": ["name"],
 }
@@ -37,6 +38,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
         self.config = config
 
         self.maxarma = config.get("maxarma", 3)
+        self.minpredict = config.get("minpredict", 1)
         self.name = config.get("name", "unknown")
         self.dbconf = config.get("dbconf", {})
         self.kafkaconf = {}
@@ -77,7 +79,12 @@ class SArimaChocolatine(SentryModule.SentryModule):
                     break
 
                 if ev[2] is not None:
-                    if ev[2]['alertable'] and ev[2]['threshold'] > 0:
+                    # Ignore any "events" where the normal time series
+                    # is below an accepted minimum value (e.g. regions
+                    # where the normal metric value is close to zero).
+                    if int(ev[2]['predicted']) < self.minpredict:
+                        val = 1.0
+                    elif ev[2]['alertable'] and ev[2]['threshold'] > 0:
                         val = ev[2]['observed'] / ev[2]['threshold']
                     else:
                         val = 1.0
