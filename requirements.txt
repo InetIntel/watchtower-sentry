@@ -3,3 +3,4 @@ jsonschema<4.0.0
 confluent_kafka
 pytimeseries
 pyyaml
+iterators
