@@ -35,5 +35,6 @@ class Keyfilter(SentryModule.SentryModule):
         logger.debug("Keyfilter.run()")
         for entry in self.gen():
             key, value, t = entry
-            if self.expression_re.match(key):
+            enc_k = key.encode('utf-8')
+            if self.expression_re.match(enc_k):
                 yield (key, value, t)

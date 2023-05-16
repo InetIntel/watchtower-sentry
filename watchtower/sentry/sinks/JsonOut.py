@@ -39,7 +39,7 @@ class JsonOut(SentryModule.Sink):
                 f = open(self.filename, 'w')
             for entry in self.gen():
                 key, value, t = entry
-                key = str(key, 'ascii')
+                #key = str(key, 'ascii')
                 json.dump((key, value, t), f, separators=self.separators)
                 f.write('\n')
         finally:
