@@ -84,10 +84,37 @@ class SArimaChocolatine(SentryModule.SentryModule):
         self.detectors = []
         self.fetchers = []
 
+    def getResults(self, key, t):
+        for d in self.detectors:
+            while True:
+                ev = d.getLiveDataResult(False)
+                if ev is None:
+                    break
+
+                self.queued -= 1
+                assert(self.queued >= 0)
+                if ev[2] is not None:
+                    # Ignore any "events" where the normal time series
+                    # is below an accepted minimum value (e.g. regions
+                    # where the normal metric value is close to zero).
+                    if int(ev[2]['predicted']) < self.minpredict:
+                        val = 1.0
+                    elif ev[2]['alertable'] and ev[2]['threshold'] > 0:
+                        val = ev[2]['observed'] / ev[2]['threshold']
+                    else:
+                        val = 1.0
+
+                    actual = int(ev[2]['observed'])
+                    pred = int(ev[2]['predicted'])
+                    yield((ev[0], (val, actual, pred), ev[1]))
+
+                    if ev[0] == key and ev[1] == t:
+                        break
+
     def run(self):
         logger.debug("SArimaChocolatine.run()")
         self.startDetectorPool()
-
+        self.queued = 0
 
         it = TimeoutIterator(self.gen(), timeout=0.5)
         for entry in it:
@@ -96,31 +123,15 @@ class SArimaChocolatine(SentryModule.SentryModule):
                 if value is None:
                     continue
                 detid = hash(key) % self.numdetectors
-
                 self.detectors[detid].queueLiveData(key, t, value)
+                self.queued += 1
 
-            for d in self.detectors:
-                while True:
-                    ev = d.getLiveDataResult(False)
-                    if ev is None:
-                        break
+            for yieldable in self.getResults(key, t):
+                yield yieldable
 
-                    if ev[2] is not None:
-                        # Ignore any "events" where the normal time series
-                        # is below an accepted minimum value (e.g. regions
-                        # where the normal metric value is close to zero).
-                        if int(ev[2]['predicted']) < self.minpredict:
-                            val = 1.0
-                        elif ev[2]['alertable'] and ev[2]['threshold'] > 0:
-                            val = ev[2]['observed'] / ev[2]['threshold']
-                        else:
-                            val = 1.0
 
-                        actual = int(ev[2]['observed'])
-                        pred = int(ev[2]['predicted'])
-                        yield((ev[0], (val, actual, pred), ev[1]))
-
-                        if ev[0] == key and ev[1] == t:
-                            break
+        while self.queued > 0:
+            for yieldable in self.getResults(None, None):
+                yield yieldable
 
         self.haltDetectorPool()
