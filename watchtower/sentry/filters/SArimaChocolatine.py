@@ -50,6 +50,8 @@ class SArimaChocolatine(SentryModule.SentryModule):
 
         self.numdetectors = config.get("detectors", 8)
 
+        self.activealerts = set()
+
         if "kafkaconf" in config:
             if 'modellerTopic' in config['kafkaconf']:
                 self.kafkaconf['modellertopic'] = config['kafkaconf']['modellerTopic']
@@ -94,15 +96,44 @@ class SArimaChocolatine(SentryModule.SentryModule):
                 self.queued -= 1
                 assert(self.queued >= 0)
                 if ev[2] is not None:
+                    val = 1.0
                     # Ignore any "events" where the normal time series
                     # is below an accepted minimum value (e.g. regions
                     # where the normal metric value is close to zero).
                     if int(ev[2]['predicted']) < self.minpredict:
                         val = 1.0
-                    elif ev[2]['alertable'] and ev[2]['threshold'] > 0:
-                        val = ev[2]['observed'] / ev[2]['threshold']
+                    elif ev[2]['alertable']:
+                        # alertable == True
+                        # This case means that the observation is below the
+                        # SARIMA anomaly threshold.
+                        # Move into an event state if we aren't already, and
+                        # start using the higher "normal" threshold to
+                        # set the bar higher for returning to a non-event state
+                        if key not in self.activealerts:
+                            if ev[2]['threshold'] > 0:
+                                val = ev[2]['observed'] / ev[2]['threshold']
+                                self.activealerts.add(key)
+                        else:
+                            if ev[2]['norm_threshold'] > 0:
+                                val = ev[2]['observed'] / ev[2]['norm_threshold']
                     else:
-                        val = 1.0
+                        # alertable == False
+                        # The observation is above the SARIMA anomaly
+                        # threshold, but that doesn't mean that we are ready
+                        # to exit an event state -- only exit if the
+                        # observation is close to the higher "normal" threshold
+                        # as well.
+                        if key in self.activealerts:
+                            if ev[2]['norm_threshold'] > 0:
+                                val = ev[2]['observed'] / ev[2]['norm_threshold']
+                            if val >= 1.0:
+                                self.activealerts.remove(key)
+                                val = 1.0
+                        else:
+                            # we're not in an event state so we don't have to
+                            # be as strict -- if SARIMA is ok with it then
+                            # we can be too...
+                            val = 1.0
 
                     actual = int(ev[2]['observed'])
                     pred = int(ev[2]['predicted'])
@@ -126,8 +157,8 @@ class SArimaChocolatine(SentryModule.SentryModule):
                 self.detectors[detid].queueLiveData(key, t, value)
                 self.queued += 1
 
-            for yieldable in self.getResults(key, t):
-                yield yieldable
+                for yieldable in self.getResults(key, t):
+                    yield yieldable
 
 
         while self.queued > 0:
