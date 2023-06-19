@@ -308,11 +308,6 @@ class MovingStat(SentryModule.SentryModule):
             # Calculate predicted value based on data in the window (not
             # including the new value)
             predicted = data.prediction()
-            if self.min_prediction is not None and \
-                    predicted is not None and \
-                    predicted < self.min_prediction:
-                # predicted value is too low
-                continue
             ratio = value/predicted if predicted else None
             logger.debug("predicted=%r, value=%r, ratio=%r",
                 predicted, value, ratio)
@@ -368,6 +363,12 @@ class MovingStat(SentryModule.SentryModule):
                 # value (which may be raw or inpainted).
                 oldest = data.vtq.popleft()
                 data.insert_remove(newval, oldest[0])
+
+            if self.min_prediction is not None and \
+                    predicted is not None and \
+                    predicted < self.min_prediction:
+                # predicted value is too low
+                continue
 
             # if include_absolute is True, then normalize is also True
             if not self.normalize:
