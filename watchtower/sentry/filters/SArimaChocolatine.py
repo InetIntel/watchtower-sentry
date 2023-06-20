@@ -50,7 +50,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
 
         self.numdetectors = config.get("detectors", 8)
 
-        self.activealerts = set()
+        self.activealerts = {}
 
         if "kafkaconf" in config:
             if 'modellerTopic' in config['kafkaconf']:
@@ -109,16 +109,18 @@ class SArimaChocolatine(SentryModule.SentryModule):
                         # Move into an event state if we aren't already, and
                         # start using the higher "normal" threshold to
                         # set the bar higher for returning to a non-event state
-                        if key not in self.activealerts:
+                        if ev[0] not in self.activealerts:
                             if ev[2]['threshold'] > 0:
                                 val = ev[2]['observed'] / ev[2]['threshold']
-                                self.activealerts.add(key)
+                                self.activealerts[ev[0]] = val
                         elif ev[2]['norm_threshold'] > 0:
                             if ev[2]['observed'] > ev[2]['norm_threshold']:
                                 val = 1.0
-                                self.activealerts.remove(key)
+                                del(self.activealerts[ev[0]])
                             else:
-                                val = 0.5       # force us to stay in an event state?
+                                val = ev[2]['observed'] / ev[2]['threshold']
+                                self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
+                                val = self.activealerts[ev[0]]
                     else:
                         # alertable == False
                         # The observation is above the SARIMA anomaly
@@ -126,13 +128,15 @@ class SArimaChocolatine(SentryModule.SentryModule):
                         # to exit an event state -- only exit if the
                         # observation is close to the higher "normal" threshold
                         # as well.
-                        if key in self.activealerts:
+                        if ev[0] in self.activealerts:
                             if ev[2]['norm_threshold'] > 0:
                                 if ev[2]['observed'] > ev[2]['norm_threshold']:
                                     val = 1.0
-                                    self.activealerts.remove(key)
+                                    del(self.activealerts[ev[0]])
                                 else:
-                                    val = 0.5       # force us to stay in an event state?
+                                    val = ev[2]['observed'] / ev[2]['threshold']
+                                    self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
+                                    val = self.activealerts[ev[0]]
                         else:
                             # we're not in an event state so we don't have to
                             # be as strict -- if SARIMA is ok with it then
