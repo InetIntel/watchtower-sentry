@@ -113,9 +113,12 @@ class SArimaChocolatine(SentryModule.SentryModule):
                             if ev[2]['threshold'] > 0:
                                 val = ev[2]['observed'] / ev[2]['threshold']
                                 self.activealerts.add(key)
-                        else:
-                            if ev[2]['norm_threshold'] > 0:
-                                val = ev[2]['observed'] / ev[2]['norm_threshold']
+                        elif ev[2]['norm_threshold'] > 0:
+                            if ev[2]['observed'] > ev[2]['norm_threshold']:
+                                val = 1.0
+                                self.activealerts.remove(key)
+                            else:
+                                val = 0.5       # force us to stay in an event state?
                     else:
                         # alertable == False
                         # The observation is above the SARIMA anomaly
@@ -125,10 +128,11 @@ class SArimaChocolatine(SentryModule.SentryModule):
                         # as well.
                         if key in self.activealerts:
                             if ev[2]['norm_threshold'] > 0:
-                                val = ev[2]['observed'] / ev[2]['norm_threshold']
-                            if val >= 1.0:
-                                self.activealerts.remove(key)
-                                val = 1.0
+                                if ev[2]['observed'] > ev[2]['norm_threshold']:
+                                    val = 1.0
+                                    self.activealerts.remove(key)
+                                else:
+                                    val = 0.5       # force us to stay in an event state?
                         else:
                             # we're not in an event state so we don't have to
                             # be as strict -- if SARIMA is ok with it then
