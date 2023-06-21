@@ -118,7 +118,10 @@ class SArimaChocolatine(SentryModule.SentryModule):
                                 val = 1.0
                                 del(self.activealerts[ev[0]])
                             else:
-                                val = ev[2]['observed'] / ev[2]['threshold']
+                                if ev[2]['observed'] < ev[2]['threshold']:
+                                    val = ev[2]['observed'] / ev[2]['threshold']
+                                else:
+                                    val = 1.0
                                 self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
                                 val = self.activealerts[ev[0]]
                     else:
@@ -134,7 +137,10 @@ class SArimaChocolatine(SentryModule.SentryModule):
                                     val = 1.0
                                     del(self.activealerts[ev[0]])
                                 else:
-                                    val = ev[2]['observed'] / ev[2]['threshold']
+                                    if ev[2]['observed'] < ev[2]['threshold']:
+                                        val = ev[2]['observed'] / ev[2]['threshold']
+                                    else:
+                                        val = 1.0
                                     self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
                                     val = self.activealerts[ev[0]]
                         else:
