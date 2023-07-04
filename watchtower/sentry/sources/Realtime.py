@@ -114,7 +114,12 @@ class GraphiteKafkaReader:
 
         kvs = msgbuf.split(b'\n')
         for kv in kvs:
-            msg = kv.decode().split(" ")
+            try:
+                msg = kv.decode().split(" ")
+            except UnicodeDecodeError as e:
+                logging.debug("Bogus message received from kafka -- skipping")
+                continue
+
             if len(msg) != 3:
                 logging.debug("Unexpected message format: %s" % (kv.decode()))
                 continue
