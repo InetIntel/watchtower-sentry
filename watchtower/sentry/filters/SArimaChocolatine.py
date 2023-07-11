@@ -111,7 +111,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
                         # set the bar higher for returning to a non-event state
                         if ev[0] not in self.activealerts:
                             if ev[2]['threshold'] > 0:
-                                val = ev[2]['observed'] / ev[2]['threshold']
+                                val = 1 / ((ev[2]['threshold'] - ev[2]['observed']) / ev[2]['baseline'])
                                 self.activealerts[ev[0]] = val
                         elif ev[2]['norm_threshold'] > 0:
                             if ev[2]['observed'] > ev[2]['norm_threshold']:
@@ -119,11 +119,11 @@ class SArimaChocolatine(SentryModule.SentryModule):
                                 del(self.activealerts[ev[0]])
                             else:
                                 if ev[2]['observed'] < ev[2]['threshold']:
-                                    val = ev[2]['observed'] / ev[2]['threshold']
+                                    val = 1 / ((ev[2]['threshold'] - ev[2]['observed']) / ev[2]['baseline'])
                                 else:
                                     val = 1.0
-                                self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
-                                val = self.activealerts[ev[0]]
+                                #self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
+                                #val = self.activealerts[ev[0]]
                     else:
                         # alertable == False
                         # The observation is above the SARIMA anomaly
@@ -137,12 +137,9 @@ class SArimaChocolatine(SentryModule.SentryModule):
                                     val = 1.0
                                     del(self.activealerts[ev[0]])
                                 else:
-                                    if ev[2]['observed'] < ev[2]['threshold']:
-                                        val = ev[2]['observed'] / ev[2]['threshold']
-                                    else:
-                                        val = 1.0
-                                    self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
-                                    val = self.activealerts[ev[0]]
+                                    val = 1 / ((ev[2]['norm_threshold'] - ev[2]['observed']) / ev[2]['baseline'])
+                                    #self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
+                                    #val = self.activealerts[ev[0]]
                         else:
                             # we're not in an event state so we don't have to
                             # be as strict -- if SARIMA is ok with it then
@@ -151,6 +148,10 @@ class SArimaChocolatine(SentryModule.SentryModule):
 
                     actual = int(ev[2]['observed'])
                     pred = int(ev[2]['predicted'])
+                    if val > 1.0:
+                        val = 1.0
+
+                    #print((ev[0], (val, actual, pred), ev[1]))
                     yield((ev[0], (val, actual, pred), ev[1]))
 
                     if ev[0] == key and ev[1] == t:
