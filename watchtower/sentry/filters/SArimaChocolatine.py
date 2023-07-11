@@ -49,7 +49,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
         self.kafkaconf['group'] = "ioda-watchtower-chocolatine-%s" % (self.name)
 
         self.numdetectors = config.get("detectors", 8)
-
+        self.first_timestamp = 0
         self.activealerts = {}
 
         if "kafkaconf" in config:
@@ -118,10 +118,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
                                 val = 1.0
                                 del(self.activealerts[ev[0]])
                             else:
-                                if ev[2]['observed'] < ev[2]['threshold']:
-                                    val = 1 / ((ev[2]['threshold'] - ev[2]['observed']) / ev[2]['baseline'])
-                                else:
-                                    val = 1.0
+                                val = 1 / ((ev[2]['norm_threshold'] - ev[2]['observed']) / ev[2]['baseline'])
                                 #self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
                                 #val = self.activealerts[ev[0]]
                     else:
@@ -148,7 +145,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
 
                     actual = int(ev[2]['observed'])
                     pred = int(ev[2]['predicted'])
-                    if val > 1.0:
+                    if val > 1.0 or ev[1] == self.first_timestamp:
                         val = 1.0
 
                     #print((ev[0], (val, actual, pred), ev[1]))
@@ -168,6 +165,8 @@ class SArimaChocolatine(SentryModule.SentryModule):
                 key, value, t = entry
                 if value is None:
                     continue
+                if self.first_timestamp == 0:
+                    self.first_timestamp = t
                 detid = hash(key) % self.numdetectors
                 self.detectors[detid].queueLiveData(key, t, value)
                 self.queued += 1
