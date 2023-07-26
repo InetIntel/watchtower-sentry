@@ -129,7 +129,7 @@ class SArimaChocolatine(SentryModule.SentryModule):
                         # as well.
                         if ev[0] in self.activealerts:
                             if ev[2]['norm_threshold'] > 0:
-                                if ev[2]['observed'] > ev[2]['norm_threshold']:
+                                if ev[2]['observed'] >= ev[2]['norm_threshold']:
                                     val = 1.0
                                     del(self.activealerts[ev[0]])
                                 else:
