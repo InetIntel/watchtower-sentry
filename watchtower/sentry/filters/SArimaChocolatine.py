@@ -168,8 +168,12 @@ class SArimaChocolatine(SentryModule.SentryModule):
                 self.detectors[detid].queueLiveData(key, t, value)
                 self.queued += 1
 
+                cnt = 0
                 for yieldable in self.getResults(key, t):
                     yield yieldable
+                    cnt += 1
+                    if cnt >= 200:
+                        break
 
 
         while self.queued > 0:
