@@ -110,14 +110,14 @@ class SArimaChocolatine(SentryModule.SentryModule):
                         # set the bar higher for returning to a non-event state
                         if ev[0] not in self.activealerts:
                             if ev[2]['threshold'] > 0:
-                                val = 1 / ((ev[2]['threshold'] - ev[2]['observed']) / ev[2]['baseline'])
+                                val = ev[2]['observed'] / ev[2]['threshold']
                                 self.activealerts[ev[0]] = val
                         elif ev[2]['norm_threshold'] > 0:
                             if ev[2]['observed'] > ev[2]['norm_threshold']:
                                 val = 1.0
                                 del(self.activealerts[ev[0]])
                             else:
-                                val = 1 / ((ev[2]['norm_threshold'] - ev[2]['observed']) / ev[2]['baseline'])
+                                val = ev[2]['observed'] / ev[2]['norm_threshold']
                                 #self.activealerts[ev[0]] = min(val, self.activealerts[ev[0]])
                                 #val = self.activealerts[ev[0]]
                     else:
