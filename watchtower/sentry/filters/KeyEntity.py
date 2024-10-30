@@ -121,6 +121,12 @@ class KeyEntity(SentryModule.SentryModule):
                 continue
 
             groups = match.groups()
+            if matched_exp['metatype'] in ["geoasn_region", "geoasn_country"]:
+                # replace '.' in fqid with a '-' to match the entity naming
+                # scheme used for geoasn entities by the IODA API
+                entitycode = groups[0].replace(".", "-")
+            else:
+                entitycode = groups[0]
 
             try:
                 entityfull = "%s/%s" % (matched_exp['metatype'], groups[0])
