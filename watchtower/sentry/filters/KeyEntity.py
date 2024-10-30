@@ -129,7 +129,7 @@ class KeyEntity(SentryModule.SentryModule):
                 entitycode = groups[0]
 
             try:
-                entityfull = "%s/%s" % (matched_exp['metatype'], groups[0])
+                entityfull = "%s/%s" % (matched_exp['metatype'], entitycode)
             except:
                 logger.error("Cannot construct entity from key '%s' using expression %s -- %s" % (key, matched_exp, groups))
                 continue
