@@ -128,6 +128,12 @@ pipeline:
   # than generating output.
   droppartial: false
 
+  # (optional) Regular expression with a capture group to identify the reporting
+  # prober from the input key. When configured with droppartial: true, enables
+  # fleet-level tracking: series where unprobed probers are healthy ("null" results)
+  # are kept, while true prober network dropouts are discarded as incomplete.
+  prober_regex: '\.probers\.(team-[^.]+\.caida-sdsc\.[^.]+)\.'
+
 
 # Output ratio of actual values to predicted values calculated with a moving
 # statistic.

@@ -1,18 +1,24 @@
 """Filter that sums values across a group of keys.
 
 Configuration parameters ('*' indicates required parameter):
-    expressions*: (array) An array of DBATS-style glob patterns that input keys must
-        match.  Aggregation groups are identified by the substring(s) that
-        match(es) parenthesized subexpression(s).
-    groupsize: (integer) Expected number of inputs per group.  Once a group
+    expressions* (or expression*): (array of strings or single string) An array of
+        DBATS-style glob patterns that input keys must match (or a single pattern string).
+        Aggregation groups are identified by the substring(s) that match(es) parenthesized
+        subexpression(s).
+    groupsize: (integer) Expected number of inputs per group. Once a group
         has this many values, the output can be generated, even if timeout has
-        not been reached.
+        not been reached. When {prober_regex} is set, this also represents the
+        expected total fleet size.
     timeout*: (integer) Max time (in seconds) to wait for inputs to arrive for
         a group before generating output for the group (unless {droppartial}
         is set).
     droppartial: (boolean) If this is set, then groups with fewer than
         {groupsize} datapoints after {timeout} seconds should be dropped
-        rather than generating output.
+        rather than generating output. When {prober_regex} is set, groups missing
+        only unprobed ("null") series are not dropped if the reporting probers are healthy.
+    prober_regex: (string, optional) Regular expression with a capture group matching
+        the prober identifier within input keys. When set, enables fleet-level tracking
+        to distinguish between prober reporting failures and unprobed ("null") series.
 
 Input:  (key, value, time)
 
@@ -33,17 +39,23 @@ logger = logging.getLogger(__name__)
 
 add_cfg_schema = {
     "properties": {
+        "expression":   {"type": "string"},
         "expressions":  {
             "type": "array",
             "items": {"type": "string"},
             "minItems": 1
         },
-        "groupsize":   {"type": "integer", "exclusiveMinimum": 0},
-        "timeout":     {"type": "integer", "exclusiveMinimum": 0},
-        "droppartial": {"type": "boolean"},
-        "dropfirst":   {"type": "boolean"},
+        "groupsize":    {"type": "integer", "exclusiveMinimum": 0},
+        "timeout":      {"type": "integer", "exclusiveMinimum": 0},
+        "droppartial":  {"type": "boolean"},
+        "dropfirst":    {"type": "boolean"},
+        "prober_regex": {"type": "string"},
     },
-    "required": ["expressions", "timeout"]
+    "required": ["timeout"],
+    "oneOf": [
+        {"required": ["expressions"]},
+        {"required": ["expression"]}
+    ]
 }
 
 class AggSum(SentryModule.SentryModule):
@@ -54,17 +66,32 @@ class AggSum(SentryModule.SentryModule):
             self.first_seen = first_seen
             self.count = count
             self.vsum = vsum
+            self.probers = set()
 
     def __init__(self, config, gen, ctx):
         logger.debug("AggSum.__init__")
         super().__init__(config, logger, gen)
-        self.expressions = config['expressions']
+        if 'expression' in config:
+            self.expressions = [config['expression']]
+        else:
+            self.expressions = config['expressions']
         self.ascii_expressions = [exp for exp in self.expressions]
         self.timeout = config['timeout']
         self.groupsize = config.get('groupsize', None)
         self.droppartial = config.get('droppartial', False)
         self.dropfirst = config.get('dropfirst', True)
+        self.prober_re = None
+        if 'prober_regex' in config:
+            self.prober_re = re.compile(config['prober_regex'])
         self.firstts = None
+
+        self.fleet_probers = dict()
+        self.known_fleet_probers = set()
+        self.agg_known_probers = dict()
+        self.fully_observed_groups = dict()
+        for ascii_exp in self.ascii_expressions:
+            self.agg_known_probers[ascii_exp] = dict()
+            self.fully_observed_groups[ascii_exp] = set()
 
         # agg_by_group is a 3-level dict that stores agginfo keyed by expression,
         # groupid, then timestamp, so it's easy to find all agginfos for a given group.
@@ -87,12 +114,60 @@ class AggSum(SentryModule.SentryModule):
         logger.debug("regexes:      %s", regexes)
         self.expression_res = [re.compile(r) for r in regexes]
 
+        self.keys_are_bytes = False
+
     # replace parens in expression with group id
     # (this could be optimized by pre-splitting expression)
     def groupkey(self, groupkey, groupid):
         for part in groupid:
-            groupkey = re.sub("\([^)]*\)", part, groupkey, count=1)
+            groupkey = re.sub(r"\([^)]*\)", part, groupkey, count=1)
+        if self.keys_are_bytes:
+            return groupkey.encode('ascii')
         return groupkey
+
+    def _prune_fleet_probers(self):
+        if self.agg_by_seen:
+            min_t = min(k[2] for k in self.agg_by_seen)
+            for old_t in list(self.fleet_probers.keys()):
+                if old_t < min_t:
+                    del self.fleet_probers[old_t]
+        else:
+            self.fleet_probers.clear()
+
+    def _should_yield(self, ascii_exp, groupid, agginfo, t):
+        if self.dropfirst and (t == self.firstts):
+            return False
+
+        if not self.droppartial:
+            return True
+
+        if not self.groupsize:
+            return True
+
+        if agginfo.count >= self.groupsize:
+            return True
+
+        if self.prober_re:
+            fleet_at_t = self.fleet_probers.get(t, set())
+            expected_for_group = self.agg_known_probers[ascii_exp].get(groupid, set())
+            missing_group_probers = expected_for_group - agginfo.probers
+            if missing_group_probers:
+                for p in missing_group_probers:
+                    if p not in fleet_at_t:
+                        logger.debug("Dropping partial group %r at t=%d: prober %s failed to report globally",
+                                     groupid, t, p)
+                        return False
+                logger.debug("Dropping partial group %r at t=%d: missing %d expected probers %r",
+                             groupid, t, len(missing_group_probers), missing_group_probers)
+                return False
+            if len(fleet_at_t) < self.groupsize and len(expected_for_group) < self.groupsize:
+                if groupid not in self.fully_observed_groups[ascii_exp]:
+                    logger.debug("Dropping group %r at t=%d: fleet degraded (%d/%d) and baseline not established",
+                                 groupid, t, len(fleet_at_t), self.groupsize)
+                    return False
+            return True
+
+        return False
 
     def _expire_oldtimes(self, ascii_exp, groupkey, groupid, max_t):
         logger.debug("Expiring old data for (%s, %s) with t < %d. "
@@ -106,11 +181,11 @@ class AggSum(SentryModule.SentryModule):
             logger.debug("giving up on %r with %d/%d items",
                          (groupid, oldtime), old_agginfo.count,
                          self.groupsize)
-            if not self.droppartial:
-                if not self.dropfirst or (oldtime != self.firstts):
-                    yield (groupkey, old_agginfo.vsum, oldtime)
+            if self._should_yield(ascii_exp, groupid, old_agginfo, oldtime):
+                yield (groupkey, old_agginfo.vsum, oldtime)
             del self.agg_by_group[ascii_exp][groupid][oldtime]
             del self.agg_by_seen[(ascii_exp, groupid, oldtime)]
+        self._prune_fleet_probers()
 
     def _is_old(self, ascii_exp, groupid, t):
         return groupid in self.old_keys[ascii_exp] \
@@ -126,6 +201,9 @@ class AggSum(SentryModule.SentryModule):
         for entry in self.gen():
             logger.debug("AG: %s", entry)
             key, value, t = entry
+            if isinstance(key, bytes):
+                self.keys_are_bytes = True
+                key = key.decode('ascii')
             if self.firstts is None:
                 self.firstts = t
             match = False
@@ -139,6 +217,22 @@ class AggSum(SentryModule.SentryModule):
                 continue
             groupid = match.groups()
             aggkey = (ascii_exp, groupid, t)
+
+            prober_id = None
+            if self.prober_re:
+                m = self.prober_re.search(key)
+                if m:
+                    prober_id = m.group(1) if m.groups() else m.group(0)
+                if prober_id is not None:
+                    if t not in self.fleet_probers:
+                        self.fleet_probers[t] = set()
+                    self.fleet_probers[t].add(prober_id)
+                    self.known_fleet_probers.add(prober_id)
+                    if groupid not in self.agg_known_probers[ascii_exp]:
+                        self.agg_known_probers[ascii_exp][groupid] = set()
+                    self.agg_known_probers[ascii_exp][groupid].add(prober_id)
+                    if self.groupsize and len(self.fleet_probers[t]) >= self.groupsize:
+                        self.fully_observed_groups[ascii_exp].add(groupid)
 
             now = time.time()
 
@@ -158,6 +252,8 @@ class AggSum(SentryModule.SentryModule):
                 self.agg_by_seen[(ascii_exp, groupid, t)] = agginfo
 
             agginfo.count += 1
+            if prober_id is not None:
+                agginfo.probers.add(prober_id)
             if value is not None:
                 agginfo.vsum += value
 
@@ -200,10 +296,22 @@ class AggSum(SentryModule.SentryModule):
                 # expire any other partial data prior to this time
                 yield from self._expire_oldtimes(ascii_exp, groupkey, groupid, t)
                 # and now yield this point (if we want partial data)
-                if not self.droppartial:
-                    if not self.dropfirst or (t != self.firstts):
-                        yield (groupkey, agginfo.vsum, t)
+                if self._should_yield(ascii_exp, groupid, agginfo, t):
+                    yield (groupkey, agginfo.vsum, t)
                 # and then update the old_keys pointer
                 self._update_oldkeys(ascii_exp, groupid, t)
+            self._prune_fleet_probers()
+
+        # Flush any remaining aggregates upon reaching EOF
+        while self.agg_by_seen:
+            aggkey, agginfo = self.agg_by_seen.popitem(False)
+            ascii_exp, groupid, t = aggkey
+            del self.agg_by_group[ascii_exp][groupid][t]
+            groupkey = self.groupkey(ascii_exp, groupid)
+            yield from self._expire_oldtimes(ascii_exp, groupkey, groupid, t)
+            if self._should_yield(ascii_exp, groupid, agginfo, t):
+                yield (groupkey, agginfo.vsum, t)
+            self._update_oldkeys(ascii_exp, groupid, t)
+        self._prune_fleet_probers()
 
         logger.debug("AggSum.run() done")
