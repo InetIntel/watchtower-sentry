@@ -116,6 +116,8 @@ class AggSum(SentryModule.SentryModule):
 
         self.keys_are_bytes = False
 
+        self.last_prune_time = 0
+
     # replace parens in expression with group id
     # (this could be optimized by pre-splitting expression)
     def groupkey(self, groupkey, groupid):
@@ -125,14 +127,14 @@ class AggSum(SentryModule.SentryModule):
             return groupkey.encode('ascii')
         return groupkey
 
-    def _prune_fleet_probers(self):
-        if self.agg_by_seen:
-            min_t = min(k[2] for k in self.agg_by_seen)
-            for old_t in list(self.fleet_probers.keys()):
-                if old_t < min_t:
-                    del self.fleet_probers[old_t]
-        else:
-            self.fleet_probers.clear()
+    def _prune_fleet_probers(self, now, current_t):
+        if now - self.last_prune_time < 60:
+            return
+        self.last_prune_time = now
+        cutoff = current_t - (2 * self.timeout)
+        for old_t in list(self.fleet_probers.keys()):
+            if old_t < cutoff:
+                del self.fleet_probers[old_t]
 
     def _should_yield(self, ascii_exp, groupid, agginfo, t):
         if self.dropfirst and (t == self.firstts):
@@ -185,11 +187,10 @@ class AggSum(SentryModule.SentryModule):
                 yield (groupkey, old_agginfo.vsum, oldtime)
             del self.agg_by_group[ascii_exp][groupid][oldtime]
             del self.agg_by_seen[(ascii_exp, groupid, oldtime)]
-        self._prune_fleet_probers()
 
     def _is_old(self, ascii_exp, groupid, t):
         return groupid in self.old_keys[ascii_exp] \
-               and t < self.old_keys[ascii_exp][groupid]
+               and t <= self.old_keys[ascii_exp][groupid]
 
     def _update_oldkeys(self, ascii_exp, groupid, t):
         if groupid not in self.old_keys[ascii_exp] \
@@ -300,7 +301,7 @@ class AggSum(SentryModule.SentryModule):
                     yield (groupkey, agginfo.vsum, t)
                 # and then update the old_keys pointer
                 self._update_oldkeys(ascii_exp, groupid, t)
-            self._prune_fleet_probers()
+            self._prune_fleet_probers(now, t)
 
         # Flush any remaining aggregates upon reaching EOF
         while self.agg_by_seen:
@@ -312,6 +313,6 @@ class AggSum(SentryModule.SentryModule):
             if self._should_yield(ascii_exp, groupid, agginfo, t):
                 yield (groupkey, agginfo.vsum, t)
             self._update_oldkeys(ascii_exp, groupid, t)
-        self._prune_fleet_probers()
+        self.fleet_probers.clear()
 
         logger.debug("AggSum.run() done")

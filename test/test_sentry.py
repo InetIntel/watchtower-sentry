@@ -354,6 +354,9 @@ test4_indata.append(('probe.full.prober-3.cnt', 0, t4))
 test4_indata.append(('probe.sparse.prober-1.cnt', 10, t4))
 test4_indata.append(('probe.sparse.prober-2.cnt', 20, t4))
 
+# Late straggler arrives for t1 after t1 was already processed/emitted
+test4_indata.append(('probe.full.prober-1.cnt', 999, t1))
+
 test4_outdata = []
 cfg4 = {
     "loglevel": "INFO",
